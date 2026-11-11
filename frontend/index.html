@@ -4,7 +4,19 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <meta
+      name="description"
+      content="CollabSphere is a space for developers to collaborate on projects."
+    />
+    <script>
+      try {
+        const theme = localStorage.getItem("collabsphere-theme");
+        document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
+      } catch {
+        document.documentElement.dataset.theme = "light";
+      }
+    </script>
+    <title>CollabSphere</title>
   </head>
   <body>
     <div id="root"></div>

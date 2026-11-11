@@ -1,144 +1,140 @@
-
+import crypto from "crypto";
 import express from "express";
+import fs from "fs";
 import multer from "multer";
 import path from "path";
-import fs from "fs";
-import File from "../models/File.js";
-import Project from "../models/Project.js";
 import authMiddleware from "../middleware/authMiddleware.js";
+import { uploadsDirectory } from "../config/uploadStorage.js";
+import {
+  deleteProjectFile,
+  downloadProjectFile,
+  listProjectFiles,
+  requireProjectMember,
+  uploadProjectFile,
+} from "../controllers/fileController.js";
 
 const router = express.Router();
+const uploadedFolder = uploadsDirectory;
+const maxFileSize = 5 * 1024 * 1024;
+const allowedMimeTypes = {
+  ".pdf": ["application/pdf"],
+  ".txt": ["text/plain"],
+  ".md": ["text/markdown", "text/x-markdown", "text/plain"],
+  ".rtf": ["application/rtf", "text/rtf", "text/plain"],
+  ".doc": ["application/msword", "application/octet-stream"],
+  ".docx": [
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/octet-stream",
+  ],
+  ".csv": ["text/csv", "application/csv", "text/plain"],
+  ".json": ["application/json", "text/json", "text/plain"],
+  ".xml": ["application/xml", "text/xml", "text/plain"],
+  ".yaml": ["application/yaml", "text/yaml", "text/plain"],
+  ".yml": ["application/yaml", "text/yaml", "text/plain"],
+  ".html": ["text/html", "text/plain"],
+  ".css": ["text/css", "text/plain"],
+  ".js": ["application/javascript", "text/javascript", "text/plain"],
+  ".jsx": ["application/javascript", "text/javascript", "text/plain"],
+  ".mjs": ["application/javascript", "text/javascript", "text/plain"],
+  ".cjs": ["application/javascript", "text/javascript", "text/plain"],
+  ".ts": ["application/typescript", "text/typescript", "text/plain"],
+  ".tsx": ["application/typescript", "text/typescript", "text/plain"],
+  ".py": ["text/x-python", "application/x-python", "text/plain"],
+  ".java": ["text/x-java-source", "text/plain"],
+  ".c": ["text/x-c", "text/plain"],
+  ".h": ["text/x-c", "text/plain"],
+  ".cpp": ["text/x-c++", "text/plain"],
+  ".hpp": ["text/x-c++", "text/plain"],
+  ".go": ["text/x-go", "text/plain"],
+  ".rs": ["text/x-rust", "text/plain"],
+  ".php": ["application/x-php", "text/plain"],
+  ".rb": ["text/x-ruby", "text/plain"],
+  ".sh": ["application/x-sh", "text/x-shellscript", "text/plain"],
+  ".sql": ["application/sql", "text/sql", "text/plain"],
+  ".png": ["image/png"],
+  ".jpg": ["image/jpeg"],
+  ".jpeg": ["image/jpeg"],
+};
 
-const uploadedFolder = "uploads";
-
-if (!fs.existsSync(uploadedFolder)) {
-  fs.mkdirSync(uploadedFolder, { recursive: true });
-}
+fs.mkdirSync(uploadedFolder, { recursive: true });
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadedFolder);
+  destination: (_req, _file, callback) => {
+    callback(null, uploadedFolder);
   },
-
-  filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${Math.round(
-      Math.random() * 1e9
-    )}${path.extname(file.originalname)}`;
-
-    cb(null, uniqueName);
+  filename: (_req, file, callback) => {
+    callback(
+      null,
+      `${crypto.randomUUID()}${path.extname(file.originalname).toLowerCase()}`
+    );
   },
 });
 
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: maxFileSize,
+    files: 1,
+  },
+  fileFilter: (_req, file, callback) => {
+    const extension = path.extname(file.originalname).toLowerCase();
+    const acceptedMimeTypes = allowedMimeTypes[extension];
+
+    if (!acceptedMimeTypes || !acceptedMimeTypes.includes(file.mimetype)) {
+      const error = new Error(
+        "Unsupported file type. Upload a supported document or code file."
+      );
+      error.status = 400;
+      return callback(error);
+    }
+
+    return callback(null, true);
   },
 });
 
-router.get("/:projectId/:fileId", authMiddleware, async(req,res)=>{
-  try{
-    const project=await Project.findById(req.params.projectId);
-
-    if(!project){
-      return res.status(404).json({
-        message:"Project not found",
-      })
-    }
-
-    const isOwner=project.owner.toString()===req.userId;
-    const isMember=project.members.some(
-      (member)=>member.toString()===req.userId
-    )
-
-    if(!isOwner && !isMember){
-      return res.status(403).json({
-        message:"Access denied",
-      })
-    }
-
-    const file=await File.findOne({
-      _id:req.params.fileId,
-      projectId:project._id,
-    })
-
-    if (!file){
-      return res.status(404).json({
-        message:"Files not found",
-      })
-    }
-
-    const absolutePath=path.resolve(file.path);
-
-    if(!fs.existsSync(absolutePath)){
-      return res.status(404).json({
-        message:"File is missing from server storage",
-      })
-    }
-
-    if(req.query.download === "true"){
-      return res.download(absolutePath, file.originalName)
-    }
-
-    return res.sendFile(absolutePath)
-  }catch(error){
-    console.error("Open file error:", error);
-
-    return res.status(500).json({
-      message:"Failed to open file",
-    })
-    }
-  })
-
-router.post("/:projectId",authMiddleware,upload.single("file"),async (req, res) => {
-    try {
-      const project = await Project.findById(req.params.projectId);
-
-      if (!project) {
-        return res.status(404).json({
-          message: "Project not found.",
-        });
-      }
-
-      const isOwner =project.owner.toString() === req.userId;
-
-      const isMember = project.members.some(
-        (member) => member.toString() === req.userId
-      );
-
-      if (!isOwner && !isMember) {
-        return res.status(403).json({
-          message: "Access denied.",
-        });
-      }
-
-      const files = await File.find({
-        project:project._id,
-      }).sort({createAt:-1});
-      
-      
-
-
-      const savedFile = await File.create({
-        filename: req.file.filename,
-        originalName: req.file.originalname,
-        path: req.file.path,
-        project: project._id,
-        uploadedBy: req.userId,
-      });
-
-      return res.status(201).json({
-        message: "File uploaded successfully!",
-        file: savedFile,
-      });
-    } catch (error) {
-      console.error("File upload error:", error);
-
-      return res.status(500).json({
-        message: "File upload failed.",
-      });
-    }
+const handleUploadError = (error, _req, res, next) => {
+  if (!error) {
+    return next();
   }
+  if (error instanceof multer.MulterError) {
+    return res.status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({
+      message:
+        error.code === "LIMIT_FILE_SIZE"
+          ? "File must be 5 MB or smaller."
+          : "Upload must contain exactly one valid file.",
+    });
+  }
+  if (error.status === 400) {
+    return res.status(400).json({ message: error.message });
+  }
+  return next(error);
+};
+
+router.get(
+  "/:projectId",
+  authMiddleware,
+  requireProjectMember,
+  listProjectFiles
 );
+router.post(
+  "/:projectId",
+  authMiddleware,
+  requireProjectMember,
+  upload.single("file"),
+  uploadProjectFile
+);
+router.get(
+  "/:projectId/:fileId",
+  authMiddleware,
+  requireProjectMember,
+  downloadProjectFile
+);
+router.delete(
+  "/:projectId/:fileId",
+  authMiddleware,
+  requireProjectMember,
+  deleteProjectFile
+);
+router.use(handleUploadError);
 
 export default router;

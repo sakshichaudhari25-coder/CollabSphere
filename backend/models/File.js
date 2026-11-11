@@ -8,11 +8,20 @@ const fileSchema=new mongoose.Schema(
         },
         originalName:{
             type: String,
-            reqruired:true
+            required:true,
         },
         path:{
             type: String,
             required: true,
+        },
+        mimeType:{
+            type:String,
+            required:true,
+        },
+        size:{
+            type:Number,
+            required:true,
+            min:0,
         },
         project:{
             type:mongoose.Schema.Types.ObjectId,
